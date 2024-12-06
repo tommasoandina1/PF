@@ -2,6 +2,9 @@ import numpy as np
 import scipy
 import scipy.stats
 
+
+from .utils import  simple_resample
+
 class RobotPF:
     def __init__(
             self,
@@ -20,7 +23,7 @@ class RobotPF:
             dimension of the state
 
         dim_u : int
-            dimension of the control inp
+            dimension of the control input
         
         eval_gux : function
             function to update the motion of the particles
@@ -39,12 +42,12 @@ class RobotPF:
         self.dim_x = dim_x
         self.dim_u = dim_u
         self.mu = np.zeros((dim_x))  # mean state estimate
-        self.Sigma = np.eye(dim_x)  # covariance state estimate
-        self.Mt = np.eye(dim_u)  # process noise
+        self.Sigma = np.eye(dim_x) 
+        self.Mt = np.eye(dim_u)  
 
         self.eval_gux = eval_gux
         self.resampling_fn = resampling_fn
-        self.N = N  # number of particles
+        self.N = N  
         self.particles = np.zeros((N, dim_x))  # particles
         self.boundaries = boundaries
         
@@ -86,50 +89,35 @@ class RobotPF:
         self.particles = self.eval_gux(self.particles, u, sigma_u, *g_extra_args)
 
 
+    def simple_resample(self):
+        N = len(self.weights)
+        cumulative_sum = np.cumsum(self.weights)
+        cumulative_sum[-1] = 1. # avoid round-off error
+        indexes = np.searchsorted(cumulative_sum, np.random.random(N))
+        return indexes
+   
     def update(self, z, sigma_z, eval_hx, hx_args=()):
-        """
-        Performs the update innovation of the particle filter.
-        
-        Parameters
-        ----------
-        
-        z : np.array
-            measurement for this step.
-        
-        lm : [x, y] list-like
-            landmark position
-            
-        residual : function (z, z2), optional
-            Optional function that computes the residual (difference) between
-            the two measurement vectors. If you do not provide this, then the
-            built in minus operator will be used. You will normally want to use
-            the built in unless your residual computation is nonlinear (for
-            example, if they are angles)
-        """
-
-        # Convert the measurement to a vector if necessary. Needed for the residual computation
         if np.isscalar(z):
             z = np.asarray([z], float)
 
+        # Calcola z_hat per tutte le particelle
         sigma_z = sigma_z * 3.0
-        # Evaluate the expected measurement and compute the residual, then update the state prediction
         z_hat = np.zeros((self.N, 2))
-
         z_hat = eval_hx(self.particles, *hx_args)
-        # simplification assumes variance is invariant to world projection
         prob = scipy.stats.norm(z_hat, sigma_z).pdf(z)
+        #print(f"prob {prob}")
         self.weights *= np.prod(prob, axis=1)
-
-
-
-
+        print(f"Weights after update (before normalization): {self.weights}")
+        
     def normalize_weights(self):
         # particles far from a measurement will give us 0.0 for a probability
         # due to floating point limits. Once we hit zero we can never recover,
         # so add some small nonzero value to all points.
+        
+        print(f"Weights before normalization: {self.weights}")
         self.weights += 1.e-10
-        self.weights /= sum(self.weights) # normalize
-        # print("Weights normalized: ", self.weights)
+        self.weights /= sum(self.weights) # normalize 
+        print(f"Weights after normalization: {self.weights}")
 
 
     def neff(self):
